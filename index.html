@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>C:A:S:A - Conference Attendee Search App</title>
+    <title>C:A:S:A - VIVATECH '25 Conference Attendee Search App</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:wght@700&display=swap" rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
@@ -19,12 +19,13 @@
             visibility: hidden;
             opacity: 0;
             transition: opacity 0.3s;
+            pointer-events: none;
         }
         .has-tooltip:hover .tooltip {
             visibility: visible;
             opacity: 1;
         }
-        #agenda-view {
+        #agenda-view, #modal-overlay {
             display: none;
         }
         .attendee-card, .selected-attendee-card {
@@ -44,6 +45,11 @@
             background-size: 1.25em;
             padding-right: 2rem;
         }
+        /* Custom scrollbar */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb { background: #888; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #555; }
     </style>
 </head>
 <body class="bg-gray-100 text-gray-800">
@@ -55,7 +61,7 @@
         </header>
 
         <div class="mb-8 p-6 bg-white rounded-lg shadow-md">
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 <input type="text" id="name-search" placeholder="Search by Attendee Name..." class="p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
                 <input type="text" id="company-search" placeholder="Search by Company Name..." class="p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
                 <select id="industry-filter" class="p-3 border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
@@ -65,21 +71,20 @@
                     <option value="">All Titles</option>
                 </select>
             </div>
-             <div class="flex justify-center mt-4">
-                 <button id="toggle-view-btn" class="mt-4 px-6 py-2 bg-blue-600 text-white font-semibold rounded-md hover:bg-blue-700 transition-colors">View Meeting Agenda</button>
+             <div class="flex justify-center mt-6">
+                 <button id="toggle-view-btn" class="px-6 py-2 bg-blue-600 text-white font-semibold rounded-md hover:bg-blue-700 transition-colors">View Meeting Agenda</button>
             </div>
         </div>
 
         <main class="grid grid-cols-1 lg:grid-cols-3 gap-8">
             <div id="attendee-list" class="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4 h-[60vh] overflow-y-auto pr-4">
-                <!-- Attendee cards will be injected here -->
+                 <p class="text-gray-500 col-span-full text-center">Loading attendees...</p>
             </div>
 
             <aside class="lg:col-span-1 bg-white p-6 rounded-lg shadow-md">
                 <h2 class="text-2xl font-bold mb-4 border-b pb-2">Selected Attendees</h2>
-                <div id="selected-attendees-list" class="space-y-4 h-[55vh] overflow-y-auto">
-                    <!-- Selected attendees will be shown here -->
-                     <p class="text-gray-500 text-center pt-10">Click on an attendee card to add them here.</p>
+                <div id="selected-attendees-list" class="space-y-4 h-[55vh] overflow-y-auto pr-2">
+                     <p class="text-gray-500 text-center pt-10">Select an attendee from the list on the left.</p>
                 </div>
             </aside>
         </main>
@@ -89,13 +94,27 @@
         <header class="flex justify-between items-center mb-8">
              <div>
                 <h1 class="text-4xl md:text-5xl font-bold title-font text-gray-900">Meeting Agenda</h1>
-                <p class="text-lg text-gray-600">Plan your day.</p>
+                <p class="text-lg text-gray-600">Plan your day. Click an available slot to schedule a meeting.</p>
             </div>
             <button id="toggle-app-btn" class="px-6 py-2 bg-blue-600 text-white font-semibold rounded-md hover:bg-blue-700 transition-colors">Back to Search</button>
         </header>
 
         <div id="agenda-slots" class="bg-white p-6 rounded-lg shadow-md h-[70vh] overflow-y-auto">
             <!-- Agenda time slots will be generated here -->
+        </div>
+    </div>
+    
+    <!-- Modal for scheduling meetings -->
+    <div id="modal-overlay" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+        <div id="modal" class="bg-white p-6 rounded-lg shadow-xl w-full max-w-md">
+            <h3 class="text-xl font-bold mb-4">Schedule Meeting for <span id="modal-time"></span></h3>
+            <select id="modal-attendee-select" class="w-full p-2 border border-gray-300 rounded-md bg-white mb-4">
+                <!-- Options will be populated here -->
+            </select>
+            <div class="flex justify-end gap-4">
+                <button id="modal-cancel" class="px-4 py-2 bg-gray-300 rounded-md hover:bg-gray-400">Cancel</button>
+                <button id="modal-save" class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">Save</button>
+            </div>
         </div>
     </div>
 
@@ -113,77 +132,176 @@
             const agendaView = document.getElementById('agenda-view');
             const toggleViewBtn = document.getElementById('toggle-view-btn');
             const toggleAppBtn = document.getElementById('toggle-app-btn');
+            
             const agendaSlots = document.getElementById('agenda-slots');
+            const modalOverlay = document.getElementById('modal-overlay');
+            const modalTime = document.getElementById('modal-time');
+            const modalAttendeeSelect = document.getElementById('modal-attendee-select');
+            const modalCancel = document.getElementById('modal-cancel');
+            const modalSave = document.getElementById('modal-save');
 
 
             let attendees = [];
             let selectedAttendees = [];
+            let agenda = {}; // { "08:00": attendeeId, ... }
+            let currentSlot = '';
+            let headers = [];
+            
+            // --- PARSING LOGIC ---
+            
+            const findHeader = (keywords) => {
+                for (const kw of keywords) {
+                    const found = headers.find(h => h.toLowerCase().trim() === kw.toLowerCase().trim());
+                    if (found) return found;
+                }
+                for (const kw of keywords) {
+                    const found = headers.find(h => h.toLowerCase().trim().includes(kw.toLowerCase().trim()));
+                    if (found) return found;
+                }
+                return undefined;
+            };
 
-            // Load and parse CSV data
-            function loadData() {
-                const csvFilePath = 'VivaTech_2025_Participants_List _all.csv';
-                Papa.parse(csvFilePath, {
-                    download: true,
+            function loadAndParseCsv() {
+                const csvPath = 'VivaTech_2025_Participants_List _all.csv';
+                Papa.parse(csvPath, {
+                    download: true, // This tells PapaParse to fetch the file from the path
                     header: true,
                     skipEmptyLines: true,
+                    trimHeaders: true,
                     complete: (results) => {
+                        if (results.errors.length > 0) {
+                             console.error("CSV Parsing Errors:", results.errors);
+                             attendeeList.innerHTML = `<p class="text-red-500">Error loading or parsing CSV file. Make sure it's in the same folder as this HTML file and the format is correct.</p>`;
+                             return;
+                        }
+                        attendees = [];
+                        selectedAttendees = [];
+                        agenda = {};
+                        headers = results.meta.fields;
+                        
                         attendees = results.data.map((row, index) => ({...row, id: index}));
                         populateFilters(attendees);
                         displayAttendees(attendees);
+                        updateSelectedList();
                     },
                     error: (err, file) => {
-                        console.error("Error parsing CSV:", err, file);
-                        attendeeList.innerHTML = `<p class="text-red-500">Error loading or parsing CSV file. Please check the file path and format.</p>`;
+                        console.error("PapaParse Error:", err, file);
+                        attendeeList.innerHTML = `<p class="text-red-500">Could not load the CSV file. Please ensure 'VivaTech_2025_Participants_List _all.csv' is in the same folder as this HTML file.</p>`;
                     }
                 });
             }
+            
+            // --- DATA MAPPING ---
+            
+            function getAttendeeFields(attendee) {
+                const ceoFounderHeader = findHeader(['CEO/Founder Name']);
+                const firstNameHeader = findHeader(['First Name']);
+                const lastNameHeader = findHeader(['Last Name']);
+                const fullNameHeader = findHeader(['Full Name', 'Attendee Name', 'Name']);
+                
+                let displayName = 'Name Not Found';
+                
+                if (ceoFounderHeader && attendee[ceoFounderHeader]) {
+                    displayName = attendee[ceoFounderHeader];
+                } 
+                else if (firstNameHeader && attendee[firstNameHeader]) {
+                    displayName = `${attendee[firstNameHeader] || ''} ${attendee[lastNameHeader] || ''}`.trim();
+                } 
+                else if (fullNameHeader && attendee[fullNameHeader]) {
+                    displayName = attendee[fullNameHeader];
+                }
 
+                return {
+                    displayName: displayName,
+                    title: attendee[findHeader(['Job Title', 'Title'])] || '',
+                    company: attendee[findHeader(['Company', 'Organisation', 'Organization'])] || '',
+                    industry: attendee[findHeader(['Industry'])] || '',
+                    description: attendee[findHeader(['Description', 'Company Description'])] || 'No description available.',
+                    linkedin: attendee[findHeader(['LinkedIn'])] || '',
+                    website: attendee[findHeader(['Website', 'URL', 'Company URL'])] || '',
+                }
+            }
+
+            // --- UI RENDERING ---
+            
             function populateFilters(data) {
-                const industries = [...new Set(data.map(item => item.Industry).filter(Boolean))];
-                const titles = [...new Set(data.map(item => item['Job Title']).filter(Boolean))];
+                industryFilter.innerHTML = '<option value="">All Industries</option>';
+                titleFilter.innerHTML = '<option value="">All Titles</option>';
 
-                industries.sort().forEach(industry => {
-                    const option = document.createElement('option');
-                    option.value = industry;
-                    option.textContent = industry;
-                    industryFilter.appendChild(option);
-                });
+                const industryHeader = findHeader(['Industry']);
+                const titleHeader = findHeader(['Job Title', 'Title']);
 
-                titles.sort().forEach(title => {
-                    const option = document.createElement('option');
-                    option.value = title;
-                    option.textContent = title;
-                    titleFilter.appendChild(option);
-                });
+                if(industryHeader) {
+                    const industries = [...new Set(data.map(item => item[industryHeader]).filter(Boolean))];
+                    industries.sort().forEach(industry => {
+                        const option = document.createElement('option');
+                        option.value = industry;
+                        option.textContent = industry;
+                        industryFilter.appendChild(option);
+                    });
+                }
+
+                if(titleHeader){
+                    const titles = [...new Set(data.map(item => item[titleHeader]).filter(Boolean))];
+                    titles.sort().forEach(title => {
+                        const option = document.createElement('option');
+                        option.value = title;
+                        option.textContent = title;
+                        titleFilter.appendChild(option);
+                    });
+                }
+            }
+            
+            function generateLinksHTML(fields) {
+                let html = '<div class="flex items-center space-x-4 mt-2">';
+                if (fields.linkedin) {
+                    html += `<a href="${fields.linkedin}" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:text-blue-800" title="LinkedIn Profile">
+                        <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z"/></svg>
+                    </a>`;
+                }
+                if (fields.website) {
+                    html += `<a href="${fields.website}" target="_blank" rel="noopener noreferrer" class="text-gray-600 hover:text-gray-800" title="Company Website">
+                        <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0c-6.627 0-12 5.373-12 12s5.373 12 12 12 12-5.373 12-12-5.373-12-12-12zm0 22c-5.514 0-10-4.486-10-10s4.486-10 10-10 10 4.486 10 10-4.486 10-10 10zm-1-11h-4v-2h4v2zm6 0h-4v-2h4v2zm-1-4h-8v-2h8v2z"/></svg>
+                    </a>`;
+                }
+                html += '</div>';
+                return (fields.linkedin || fields.website) ? html : '';
             }
 
             function displayAttendees(data) {
                 attendeeList.innerHTML = '';
+                if (attendees.length === 0) {
+                    attendeeList.innerHTML = '<p class="text-gray-500 col-span-full text-center">Could not load attendee data.</p>';
+                    return;
+                }
                 if (data.length === 0) {
                     attendeeList.innerHTML = '<p class="text-gray-500 col-span-full text-center">No attendees found matching your criteria.</p>';
                     return;
                 }
+
                 data.forEach(attendee => {
                     const isSelected = selectedAttendees.some(sa => sa.id === attendee.id);
                     const card = document.createElement('div');
-                    card.className = `attendee-card bg-white p-4 rounded-lg shadow-sm border ${isSelected ? 'border-blue-500' : 'border-gray-200'} cursor-pointer`;
+                    card.className = `attendee-card bg-white p-4 rounded-lg shadow-sm border ${isSelected ? 'border-blue-500 ring-2 ring-blue-200' : 'border-gray-200'} cursor-pointer`;
                     card.dataset.id = attendee.id;
+                    const fields = getAttendeeFields(attendee);
 
                     card.innerHTML = `
                         <div class="flex justify-between items-start">
                              <div class="w-full">
-                                <p class="font-bold text-lg text-gray-800">${attendee['First Name']} ${attendee['Last Name']}</p>
-                                <p class="text-gray-600">${attendee['Job Title']}</p>
+                                <p class="font-bold text-lg text-gray-800">${fields.displayName}</p>
+                                <p class="text-gray-600">${fields.title}</p>
                              </div>
                              ${isSelected ? '<span class="text-blue-500 font-bold text-xl">&#10003;</span>' : ''}
                         </div>
                         <div class="relative has-tooltip mt-2">
-                            <p class="text-blue-600 font-semibold">${attendee.Company}</p>
-                             <div class="tooltip absolute z-10 w-64 p-2 -mt-16 text-sm leading-tight text-white bg-gray-800 rounded-lg shadow-xl transform -translate-x-1/2 left-1/2">
-                                ${attendee['Company Description'] || 'No description available.'}
+                            <p class="text-blue-600 font-semibold">${fields.company}</p>
+                             <div class="tooltip absolute z-10 w-64 p-3 -mt-2 text-sm leading-tight text-white bg-gray-800 rounded-lg shadow-xl">
+                                ${fields.description}
                             </div>
                         </div>
-                        <p class="text-sm text-gray-500 mt-1">${attendee.Industry}</p>
+                        <p class="text-sm text-gray-500 mt-1">${fields.industry}</p>
+                        ${generateLinksHTML(fields)}
                     `;
                     card.addEventListener('click', () => toggleSelectAttendee(attendee));
                     attendeeList.appendChild(card);
@@ -196,13 +314,15 @@
                 const industryQuery = industryFilter.value;
                 const titleQuery = titleFilter.value;
 
+                if (attendees.length === 0) return;
+
                 const filtered = attendees.filter(attendee => {
-                    const fullName = `${attendee['First Name']} ${attendee['Last Name']}`.toLowerCase();
+                    const fields = getAttendeeFields(attendee);
                     return (
-                        (fullName.includes(nameQuery)) &&
-                        (attendee.Company.toLowerCase().includes(companyQuery)) &&
-                        (industryQuery === '' || attendee.Industry === industryQuery) &&
-                        (titleQuery === '' || attendee['Job Title'] === titleQuery)
+                        (fields.displayName.toLowerCase().includes(nameQuery)) &&
+                        (fields.company.toLowerCase().includes(companyQuery)) &&
+                        (industryQuery === '' || fields.industry === industryQuery) &&
+                        (titleQuery === '' || fields.title === titleQuery)
                     );
                 });
                 displayAttendees(filtered);
@@ -213,10 +333,10 @@
                 if (index > -1) {
                     selectedAttendees.splice(index, 1);
                 } else {
-                    selectedAttendees.push({ ...attendee, status: 'invited', notes: '' });
+                    selectedAttendees.push({ ...attendee, status: 'Selected', notes: '' });
                 }
                 updateSelectedList();
-                filterAttendees(); // To update the checkmark
+                filterAttendees();
             }
 
             function updateSelectedList() {
@@ -225,22 +345,27 @@
                     selectedAttendeesList.innerHTML = '<p class="text-gray-500 text-center pt-10">Click on an attendee card to add them here.</p>';
                     return;
                 }
-                selectedAttendees.forEach((attendee, index) => {
+
+                selectedAttendees.forEach(attendee => {
                     const card = document.createElement('div');
                     card.className = 'selected-attendee-card bg-gray-50 p-4 rounded-lg border border-gray-200';
+                    const fields = getAttendeeFields(attendee);
+
                     card.innerHTML = `
                         <div class="flex justify-between items-start">
                             <div>
-                                <p class="font-bold text-gray-800">${attendee['First Name']} ${attendee['Last Name']}</p>
-                                <p class="text-sm text-gray-600">${attendee.Company}</p>
+                                <p class="font-bold text-gray-800">${fields.displayName}</p>
+                                <p class="text-sm text-gray-600">${fields.company}</p>
+                                ${generateLinksHTML(fields)}
                             </div>
-                            <button class="remove-btn text-red-500 hover:text-red-700 font-bold" data-index="${index}">&times;</button>
+                            <button class="remove-btn text-red-500 hover:text-red-700 font-bold text-2xl leading-none" data-id="${attendee.id}">&times;</button>
                         </div>
                         <div class="mt-4">
                             <select class="status-select w-full p-2 border border-gray-300 rounded-md bg-white" data-id="${attendee.id}">
-                                <option value="invited" ${attendee.status === 'invited' ? 'selected' : ''}>Invited</option>
-                                <option value="met" ${attendee.status === 'met' ? 'selected' : ''}>Met</option>
-                                <option value="follow-up" ${attendee.status === 'follow-up' ? 'selected' : ''}>Follow-up</option>
+                                <option value="Selected" ${attendee.status === 'Selected' ? 'selected' : ''}>Selected</option>
+                                <option value="Invited" ${attendee.status === 'Invited' ? 'selected' : ''}>Invited</option>
+                                <option value="Met" ${attendee.status === 'Met' ? 'selected' : ''}>Met</option>
+                                <option value="Follow-up" ${attendee.status === 'Follow-up' ? 'selected' : ''}>Follow-up</option>
                             </select>
                             <textarea class="notes-input w-full mt-2 p-2 border border-gray-300 rounded-md" rows="2" placeholder="Short note..." data-id="${attendee.id}">${attendee.notes}</textarea>
                         </div>
@@ -248,11 +373,11 @@
                     selectedAttendeesList.appendChild(card);
                 });
 
-                // Add event listeners for new elements
+                // Add event listeners for selected list
                 selectedAttendeesList.querySelectorAll('.remove-btn').forEach(btn => {
                     btn.addEventListener('click', (e) => {
-                        const indexToRemove = parseInt(e.target.dataset.index, 10);
-                        selectedAttendees.splice(indexToRemove, 1);
+                        const attendeeIdToRemove = parseInt(e.target.dataset.id, 10);
+                        selectedAttendees = selectedAttendees.filter(sa => sa.id !== attendeeIdToRemove);
                         updateSelectedList();
                         filterAttendees();
                     });
@@ -262,9 +387,7 @@
                     select.addEventListener('change', (e) => {
                         const attendeeId = parseInt(e.target.dataset.id, 10);
                         const selectedAttendee = selectedAttendees.find(sa => sa.id === attendeeId);
-                        if (selectedAttendee) {
-                            selectedAttendee.status = e.target.value;
-                        }
+                        if (selectedAttendee) selectedAttendee.status = e.target.value;
                     });
                 });
 
@@ -272,18 +395,16 @@
                     textarea.addEventListener('input', (e) => {
                          const attendeeId = parseInt(e.target.dataset.id, 10);
                         const selectedAttendee = selectedAttendees.find(sa => sa.id === attendeeId);
-                        if (selectedAttendee) {
-                            selectedAttendee.notes = e.target.value;
-                        }
+                        if (selectedAttendee) selectedAttendee.notes = e.target.value;
                     });
                 });
             }
+            
+            // --- AGENDA LOGIC ---
 
             function generateAgenda() {
                 agendaSlots.innerHTML = '';
-                const startTime = 8 * 60; // 8:00 AM in minutes
-                const endTime = 18 * 60; // 6:00 PM in minutes
-                const slotDuration = 15; // 15 minutes
+                const startTime = 8 * 60, endTime = 18 * 60, slotDuration = 15;
 
                 for (let time = startTime; time < endTime; time += slotDuration) {
                     const hours = Math.floor(time / 60);
@@ -291,35 +412,75 @@
                     const timeString = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
                     
                     const slotEl = document.createElement('div');
+                    const meetingAttendeeId = agenda[timeString];
+                    
+                    let content;
+                    if (meetingAttendeeId !== undefined) {
+                        const attendee = attendees.find(a => a.id === meetingAttendeeId);
+                        const fields = getAttendeeFields(attendee);
+                        content = `
+                            <div class="font-bold text-blue-800">${fields.displayName}</div>
+                            <div class="text-sm text-gray-600">${fields.company}</div>
+                        `;
+                    } else {
+                        content = `<div class="text-gray-500 cursor-pointer hover:text-green-600 hover:font-semibold">Available</div>`;
+                        slotEl.addEventListener('click', () => openScheduleModal(timeString));
+                    }
+                    
                     slotEl.className = 'flex items-center border-b border-gray-200 py-3';
                     slotEl.innerHTML = `
                         <div class="w-24 font-semibold text-gray-700">${timeString}</div>
-                        <div class="flex-1 ml-4 text-gray-500">Available</div>
+                        <div class="flex-1 ml-4">${content}</div>
                     `;
                     agendaSlots.appendChild(slotEl);
                 }
             }
+            
+            function openScheduleModal(timeString) {
+                currentSlot = timeString;
+                modalTime.textContent = timeString;
+                modalAttendeeSelect.innerHTML = '<option value="">Select an attendee...</option>';
 
+                const availableAttendees = selectedAttendees.filter(attendee => !Object.values(agenda).includes(attendee.id));
+                availableAttendees.forEach(attendee => {
+                    const option = document.createElement('option');
+                    const fields = getAttendeeFields(attendee);
+                    option.value = attendee.id;
+                    option.textContent = `${fields.displayName} (${fields.company})`;
+                    modalAttendeeSelect.appendChild(option);
+                });
 
-            // Event Listeners
+                modalOverlay.style.display = 'flex';
+            }
+
+            function closeScheduleModal() {
+                modalOverlay.style.display = 'none';
+            }
+
+            modalSave.addEventListener('click', () => {
+                const selectedId = modalAttendeeSelect.value;
+                if (selectedId) {
+                    agenda[currentSlot] = parseInt(selectedId, 10);
+                    generateAgenda();
+                    closeScheduleModal();
+                }
+            });
+
+            // --- GLOBAL EVENT LISTENERS ---
             nameSearch.addEventListener('input', filterAttendees);
             companySearch.addEventListener('input', filterAttendees);
             industryFilter.addEventListener('change', filterAttendees);
             titleFilter.addEventListener('change', filterAttendees);
-
-            toggleViewBtn.addEventListener('click', () => {
-                appView.style.display = 'none';
-                agendaView.style.display = 'block';
-                generateAgenda();
-            });
-            
-            toggleAppBtn.addEventListener('click', () => {
-                agendaView.style.display = 'none';
-                appView.style.display = 'block';
+            toggleViewBtn.addEventListener('click', () => { appView.style.display = 'none'; agendaView.style.display = 'block'; generateAgenda(); });
+            toggleAppBtn.addEventListener('click', () => { agendaView.style.display = 'none'; appView.style.display = 'block'; });
+            modalCancel.addEventListener('click', closeScheduleModal);
+            modalOverlay.addEventListener('click', (e) => {
+                if(e.target === modalOverlay) closeScheduleModal();
             });
 
-            // Initial Load
-            loadData();
+            // --- INITIAL LOAD ---
+            loadAndParseCsv();
+
         });
     </script>
 </body>
