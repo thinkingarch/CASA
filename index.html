@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>C:A:S:A - Conference Attendee Search App</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:wght@700&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f8f9fa;
+        }
+        .title-font {
+            font-family: 'Playfair Display', serif;
+        }
+        .tooltip {
+            visibility: hidden;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        .has-tooltip:hover .tooltip {
+            visibility: visible;
+            opacity: 1;
+        }
+        #agenda-view {
+            display: none;
+        }
+        .attendee-card, .selected-attendee-card {
+            transition: all 0.2s ease-in-out;
+        }
+        .attendee-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        .status-select {
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+            background-image: url('data:image/svg+xml;charset=UTF-8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-chevron-down"><polyline points="6 9 12 15 18 9"></polyline></svg>');
+            background-repeat: no-repeat;
+            background-position: right 0.5rem center;
+            background-size: 1.25em;
+            padding-right: 2rem;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+    <div id="app-view" class="container mx-auto p-4 md:p-8">
+        <header class="text-center mb-8">
+            <h1 class="text-4xl md:text-5xl font-bold title-font text-gray-900">C:A:S:A</h1>
+            <p class="text-lg text-gray-600">Conference Attendee Search App</p>
+        </header>
+
+        <div class="mb-8 p-6 bg-white rounded-lg shadow-md">
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <input type="text" id="name-search" placeholder="Search by Attendee Name..." class="p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <input type="text" id="company-search" placeholder="Search by Company Name..." class="p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <select id="industry-filter" class="p-3 border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <option value="">All Industries</option>
+                </select>
+                <select id="title-filter" class="p-3 border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <option value="">All Titles</option>
+                </select>
+            </div>
+             <div class="flex justify-center mt-4">
+                 <button id="toggle-view-btn" class="mt-4 px-6 py-2 bg-blue-600 text-white font-semibold rounded-md hover:bg-blue-700 transition-colors">View Meeting Agenda</button>
+            </div>
+        </div>
+
+        <main class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <div id="attendee-list" class="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4 h-[60vh] overflow-y-auto pr-4">
+                <!-- Attendee cards will be injected here -->
+            </div>
+
+            <aside class="lg:col-span-1 bg-white p-6 rounded-lg shadow-md">
+                <h2 class="text-2xl font-bold mb-4 border-b pb-2">Selected Attendees</h2>
+                <div id="selected-attendees-list" class="space-y-4 h-[55vh] overflow-y-auto">
+                    <!-- Selected attendees will be shown here -->
+                     <p class="text-gray-500 text-center pt-10">Click on an attendee card to add them here.</p>
+                </div>
+            </aside>
+        </main>
+    </div>
+
+    <div id="agenda-view" class="container mx-auto p-4 md:p-8">
+        <header class="flex justify-between items-center mb-8">
+             <div>
+                <h1 class="text-4xl md:text-5xl font-bold title-font text-gray-900">Meeting Agenda</h1>
+                <p class="text-lg text-gray-600">Plan your day.</p>
+            </div>
+            <button id="toggle-app-btn" class="px-6 py-2 bg-blue-600 text-white font-semibold rounded-md hover:bg-blue-700 transition-colors">Back to Search</button>
+        </header>
+
+        <div id="agenda-slots" class="bg-white p-6 rounded-lg shadow-md h-[70vh] overflow-y-auto">
+            <!-- Agenda time slots will be generated here -->
+        </div>
+    </div>
+
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const attendeeList = document.getElementById('attendee-list');
+            const nameSearch = document.getElementById('name-search');
+            const companySearch = document.getElementById('company-search');
+            const industryFilter = document.getElementById('industry-filter');
+            const titleFilter = document.getElementById('title-filter');
+            const selectedAttendeesList = document.getElementById('selected-attendees-list');
+            
+            const appView = document.getElementById('app-view');
+            const agendaView = document.getElementById('agenda-view');
+            const toggleViewBtn = document.getElementById('toggle-view-btn');
+            const toggleAppBtn = document.getElementById('toggle-app-btn');
+            const agendaSlots = document.getElementById('agenda-slots');
+
+
+            let attendees = [];
+            let selectedAttendees = [];
+
+            // Load and parse CSV data
+            function loadData() {
+                const csvFilePath = 'VivaTech_2025_Participants_List _all.csv';
+                Papa.parse(csvFilePath, {
+                    download: true,
+                    header: true,
+                    skipEmptyLines: true,
+                    complete: (results) => {
+                        attendees = results.data.map((row, index) => ({...row, id: index}));
+                        populateFilters(attendees);
+                        displayAttendees(attendees);
+                    },
+                    error: (err, file) => {
+                        console.error("Error parsing CSV:", err, file);
+                        attendeeList.innerHTML = `<p class="text-red-500">Error loading or parsing CSV file. Please check the file path and format.</p>`;
+                    }
+                });
+            }
+
+            function populateFilters(data) {
+                const industries = [...new Set(data.map(item => item.Industry).filter(Boolean))];
+                const titles = [...new Set(data.map(item => item['Job Title']).filter(Boolean))];
+
+                industries.sort().forEach(industry => {
+                    const option = document.createElement('option');
+                    option.value = industry;
+                    option.textContent = industry;
+                    industryFilter.appendChild(option);
+                });
+
+                titles.sort().forEach(title => {
+                    const option = document.createElement('option');
+                    option.value = title;
+                    option.textContent = title;
+                    titleFilter.appendChild(option);
+                });
+            }
+
+            function displayAttendees(data) {
+                attendeeList.innerHTML = '';
+                if (data.length === 0) {
+                    attendeeList.innerHTML = '<p class="text-gray-500 col-span-full text-center">No attendees found matching your criteria.</p>';
+                    return;
+                }
+                data.forEach(attendee => {
+                    const isSelected = selectedAttendees.some(sa => sa.id === attendee.id);
+                    const card = document.createElement('div');
+                    card.className = `attendee-card bg-white p-4 rounded-lg shadow-sm border ${isSelected ? 'border-blue-500' : 'border-gray-200'} cursor-pointer`;
+                    card.dataset.id = attendee.id;
+
+                    card.innerHTML = `
+                        <div class="flex justify-between items-start">
+                             <div class="w-full">
+                                <p class="font-bold text-lg text-gray-800">${attendee['First Name']} ${attendee['Last Name']}</p>
+                                <p class="text-gray-600">${attendee['Job Title']}</p>
+                             </div>
+                             ${isSelected ? '<span class="text-blue-500 font-bold text-xl">&#10003;</span>' : ''}
+                        </div>
+                        <div class="relative has-tooltip mt-2">
+                            <p class="text-blue-600 font-semibold">${attendee.Company}</p>
+                             <div class="tooltip absolute z-10 w-64 p-2 -mt-16 text-sm leading-tight text-white bg-gray-800 rounded-lg shadow-xl transform -translate-x-1/2 left-1/2">
+                                ${attendee['Company Description'] || 'No description available.'}
+                            </div>
+                        </div>
+                        <p class="text-sm text-gray-500 mt-1">${attendee.Industry}</p>
+                    `;
+                    card.addEventListener('click', () => toggleSelectAttendee(attendee));
+                    attendeeList.appendChild(card);
+                });
+            }
+
+            function filterAttendees() {
+                const nameQuery = nameSearch.value.toLowerCase();
+                const companyQuery = companySearch.value.toLowerCase();
+                const industryQuery = industryFilter.value;
+                const titleQuery = titleFilter.value;
+
+                const filtered = attendees.filter(attendee => {
+                    const fullName = `${attendee['First Name']} ${attendee['Last Name']}`.toLowerCase();
+                    return (
+                        (fullName.includes(nameQuery)) &&
+                        (attendee.Company.toLowerCase().includes(companyQuery)) &&
+                        (industryQuery === '' || attendee.Industry === industryQuery) &&
+                        (titleQuery === '' || attendee['Job Title'] === titleQuery)
+                    );
+                });
+                displayAttendees(filtered);
+            }
+            
+            function toggleSelectAttendee(attendee) {
+                const index = selectedAttendees.findIndex(sa => sa.id === attendee.id);
+                if (index > -1) {
+                    selectedAttendees.splice(index, 1);
+                } else {
+                    selectedAttendees.push({ ...attendee, status: 'invited', notes: '' });
+                }
+                updateSelectedList();
+                filterAttendees(); // To update the checkmark
+            }
+
+            function updateSelectedList() {
+                selectedAttendeesList.innerHTML = '';
+                if(selectedAttendees.length === 0){
+                    selectedAttendeesList.innerHTML = '<p class="text-gray-500 text-center pt-10">Click on an attendee card to add them here.</p>';
+                    return;
+                }
+                selectedAttendees.forEach((attendee, index) => {
+                    const card = document.createElement('div');
+                    card.className = 'selected-attendee-card bg-gray-50 p-4 rounded-lg border border-gray-200';
+                    card.innerHTML = `
+                        <div class="flex justify-between items-start">
+                            <div>
+                                <p class="font-bold text-gray-800">${attendee['First Name']} ${attendee['Last Name']}</p>
+                                <p class="text-sm text-gray-600">${attendee.Company}</p>
+                            </div>
+                            <button class="remove-btn text-red-500 hover:text-red-700 font-bold" data-index="${index}">&times;</button>
+                        </div>
+                        <div class="mt-4">
+                            <select class="status-select w-full p-2 border border-gray-300 rounded-md bg-white" data-id="${attendee.id}">
+                                <option value="invited" ${attendee.status === 'invited' ? 'selected' : ''}>Invited</option>
+                                <option value="met" ${attendee.status === 'met' ? 'selected' : ''}>Met</option>
+                                <option value="follow-up" ${attendee.status === 'follow-up' ? 'selected' : ''}>Follow-up</option>
+                            </select>
+                            <textarea class="notes-input w-full mt-2 p-2 border border-gray-300 rounded-md" rows="2" placeholder="Short note..." data-id="${attendee.id}">${attendee.notes}</textarea>
+                        </div>
+                    `;
+                    selectedAttendeesList.appendChild(card);
+                });
+
+                // Add event listeners for new elements
+                selectedAttendeesList.querySelectorAll('.remove-btn').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        const indexToRemove = parseInt(e.target.dataset.index, 10);
+                        selectedAttendees.splice(indexToRemove, 1);
+                        updateSelectedList();
+                        filterAttendees();
+                    });
+                });
+                
+                selectedAttendeesList.querySelectorAll('.status-select').forEach(select => {
+                    select.addEventListener('change', (e) => {
+                        const attendeeId = parseInt(e.target.dataset.id, 10);
+                        const selectedAttendee = selectedAttendees.find(sa => sa.id === attendeeId);
+                        if (selectedAttendee) {
+                            selectedAttendee.status = e.target.value;
+                        }
+                    });
+                });
+
+                selectedAttendeesList.querySelectorAll('.notes-input').forEach(textarea => {
+                    textarea.addEventListener('input', (e) => {
+                         const attendeeId = parseInt(e.target.dataset.id, 10);
+                        const selectedAttendee = selectedAttendees.find(sa => sa.id === attendeeId);
+                        if (selectedAttendee) {
+                            selectedAttendee.notes = e.target.value;
+                        }
+                    });
+                });
+            }
+
+            function generateAgenda() {
+                agendaSlots.innerHTML = '';
+                const startTime = 8 * 60; // 8:00 AM in minutes
+                const endTime = 18 * 60; // 6:00 PM in minutes
+                const slotDuration = 15; // 15 minutes
+
+                for (let time = startTime; time < endTime; time += slotDuration) {
+                    const hours = Math.floor(time / 60);
+                    const minutes = time % 60;
+                    const timeString = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+                    
+                    const slotEl = document.createElement('div');
+                    slotEl.className = 'flex items-center border-b border-gray-200 py-3';
+                    slotEl.innerHTML = `
+                        <div class="w-24 font-semibold text-gray-700">${timeString}</div>
+                        <div class="flex-1 ml-4 text-gray-500">Available</div>
+                    `;
+                    agendaSlots.appendChild(slotEl);
+                }
+            }
+
+
+            // Event Listeners
+            nameSearch.addEventListener('input', filterAttendees);
+            companySearch.addEventListener('input', filterAttendees);
+            industryFilter.addEventListener('change', filterAttendees);
+            titleFilter.addEventListener('change', filterAttendees);
+
+            toggleViewBtn.addEventListener('click', () => {
+                appView.style.display = 'none';
+                agendaView.style.display = 'block';
+                generateAgenda();
+            });
+            
+            toggleAppBtn.addEventListener('click', () => {
+                agendaView.style.display = 'none';
+                appView.style.display = 'block';
+            });
+
+            // Initial Load
+            loadData();
+        });
+    </script>
+</body>
+</html>
